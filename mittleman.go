@@ -2,7 +2,7 @@ package main
 
 import (
 	"io"
-//  "io/ioutil"
+  "io/ioutil"
 	"net/http"
   "fmt"
   "strings"
@@ -15,7 +15,7 @@ func splitPath(p string) (string, string, string){
 }
 
 func root(w http.ResponseWriter, r *http.Request) {
-	io.WriteString(w, "Welcome to Sroxy!")
+	io.WriteString(w, "Welcome to Mittleman!")
 }
 
 func proxy(w http.ResponseWriter, r *http.Request) {
@@ -42,18 +42,15 @@ func proxy(w http.ResponseWriter, r *http.Request) {
   //body, err := ioutil.ReadAll(resp.Body)
 
   io.WriteString(w, resp.Status)
+
+
 }
 
-func status(w http.ResponseWriter, r *http.Request) {
-  _, domain, _ := splitPath(r.URL.Path)
-  fmt.Println(domain)
-  io.WriteString(w, domain)
-}
 
 func main() {
 	http.HandleFunc("/", root)
   http.HandleFunc("/http/", proxy)
-  http.HandleFunc("/status/", status)
-  fmt.Println("Starting Sroxy Server!")
+
+	fmt.Println("Starting Mittleman Server!\nSay Hi to George Bluth.")
 	http.ListenAndServe(":8000", nil)
 }
