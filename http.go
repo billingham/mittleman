@@ -7,7 +7,7 @@ import (
         "net/url"
         "strings"
         "fmt"
-        "github.com/gregjones/httpcache"
+        "time"
 )
 
 func extractProtoAndDomain(target *url.URL) (proto string, domain string, err error) {
@@ -45,11 +45,9 @@ func NewPathBasedReverseProxy() *httputil.ReverseProxy {
         }
         return &httputil.ReverseProxy{
                 Director: director,
-                Transport: httpcache.NewMemoryCacheTransport(),
+                Transport: &SimpleTransport{
+                    ReadTimeout:    10 * time.Second,
+                    RequestTimeout: 15 * time.Second,
+                },
         }
-}
-
-func main() {
-        proxy := NewPathBasedReverseProxy()
-        log.Fatal(http.ListenAndServe(":9090", proxy))
 }
