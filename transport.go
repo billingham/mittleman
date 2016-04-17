@@ -11,34 +11,86 @@ import (
 	"net/url"
 	"strings"
 	"time"
+  "log"
+  "fmt"
+  "crypto/sha1"
+  //"bytes"
+  //"sort"
 )
 
-// https://github.com/pkulak/simpletransport
+// https://github.com/pkulak/SimpleTransport
 
 // An HTTP RoundTripper that doesn't pool connections. Most of this is ripped from http.Transport.
 
-type SimpleTransport struct {
+type Cache map[string]*http.Response
+
+
+type SurrogateTransport struct {
 	ReadTimeout time.Duration
 
 	// RequestTimeout isn't exact. In the worst case, the actual timeout can come at RequestTimeout * 2.
 	RequestTimeout time.Duration
 }
 
-func (this *SimpleTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.URL == nil {
-		return nil, errors.New("http: nil Request.URL")
-	}
-	if req.Header == nil {
-		return nil, errors.New("http: nil Request.Header")
-	}
-	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-		return nil, errors.New("http: unsupported protocol scheme")
-	}
-	if req.URL.Host == "" {
-		return nil, errors.New("http: no Host in request URL")
-	}
+var SurrogateCache = Cache{}
 
-	conn, err := this.dial(req)
+func buildKey(req *http.Request) (string){
+
+  //headers := sortedHeader(req.Header)
+  key := fmt.Sprintf("Transport\nURL: %s\nMethod: %s\nScheme: %s\nHost: %s",req.URL,req.Method,req.URL.Scheme,req.URL.Host)
+
+  return key
+}
+
+// func sortedHeader(h http.Header) (string){
+//
+//   keys := []string
+//   for k := range h {
+//     keys = append(keys, k)
+//   }
+//   sort.Ints(keys)
+//
+//   sort.Strings(h)
+//
+//   buffer := bytes.Buffer
+//   for _, k := range keys {
+//     buffer.WriteString(fmt.Sprintf("%s=%s ",k,h[k]))
+//   }
+//
+//   return buffer.String()
+// }
+
+func (t *SurrogateTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+  key := buildKey(req)
+  log.Print(key)
+
+  hash := fmt.Sprintf("%x",sha1.Sum([]byte(key)))
+  log.Print(hash)
+
+  log.Print(SurrogateCache)
+
+  if SurrogateCache[hash] != nil {
+    log.Print("Cache HIT -> ",hash)
+    log.Print(SurrogateCache[hash])
+    return SurrogateCache[hash], nil
+  }
+
+  res, err := t.originRequest(req)
+  if err != nil {
+    return nil, err
+  }
+
+  SurrogateCache[hash] = &http.Response{
+    Status: res.Status,
+    Header: res.Header,
+    Body: res.Body,
+  }
+  log.Print(SurrogateCache[hash])
+  return SurrogateCache[hash], nil
+}
+
+func (t *SurrogateTransport) originRequest(req *http.Request) (*http.Response, error) {
+	conn, err := t.dial(req)
 
 	if err != nil {
 		return nil, err
@@ -106,7 +158,7 @@ func (this *SimpleTransport) RoundTrip(req *http.Request) (*http.Response, error
 	return r.res, nil
 }
 
-func (this *SimpleTransport) dial(req *http.Request) (net.Conn, error) {
+func (t *SurrogateTransport) dial(req *http.Request) (net.Conn, error) {
 	targetAddr := canonicalAddr(req.URL)
 
 	c, err := net.Dial("tcp", targetAddr)
@@ -115,15 +167,15 @@ func (this *SimpleTransport) dial(req *http.Request) (net.Conn, error) {
 		return c, err
 	}
 
-	if this.RequestTimeout > 0 && this.ReadTimeout == 0 {
-		this.ReadTimeout = this.RequestTimeout
+	if t.RequestTimeout > 0 && t.ReadTimeout == 0 {
+		t.ReadTimeout = t.RequestTimeout
 	}
 
-	if this.ReadTimeout > 0 {
-		c = newDeadlineConn(c, this.ReadTimeout)
+	if t.ReadTimeout > 0 {
+		c = newDeadlineConn(c, t.ReadTimeout)
 
-		if this.RequestTimeout > 0 {
-			c = newTimeoutConn(c, this.RequestTimeout)
+		if t.RequestTimeout > 0 {
+			c = newTimeoutConn(c, t.RequestTimeout)
 		}
 	}
 
@@ -176,9 +228,9 @@ type connCloser struct {
 	conn net.Conn
 }
 
-func (this *connCloser) Close() error {
-	this.conn.Close()
-	return this.ReadCloser.Close()
+func (c *connCloser) Close() error {
+	c.conn.Close()
+	return c.ReadCloser.Close()
 }
 
 // A connection wrapper that times out after a period of time with no data sent.
@@ -193,14 +245,14 @@ func newDeadlineConn(conn net.Conn, deadline time.Duration) *deadlineConn {
 	return c
 }
 
-func (this *deadlineConn) Read(b []byte) (n int, err error) {
-	n, err = this.Conn.Read(b)
+func (c *deadlineConn) Read(b []byte) (n int, err error) {
+	n, err = c.Conn.Read(b)
 
 	if err != nil {
 		return
 	}
 
-	this.Conn.SetReadDeadline(time.Now().Add(this.deadline))
+	c.Conn.SetReadDeadline(time.Now().Add(c.deadline))
 	return
 }
 
@@ -215,10 +267,10 @@ func newTimeoutConn(conn net.Conn, timeout time.Duration) *timeoutConn {
 	return &timeoutConn{Conn: conn, timeout: time.Now().Add(timeout)}
 }
 
-func (this *timeoutConn) Read(b []byte) (int, error) {
-	if time.Now().After(this.timeout) {
+func (t *timeoutConn) Read(b []byte) (int, error) {
+	if time.Now().After(t.timeout) {
 		return 0, errors.New("connection timeout")
 	}
 
-	return this.Conn.Read(b)
+	return t.Conn.Read(b)
 }

@@ -43,11 +43,12 @@ func NewPathBasedReverseProxy() *httputil.ReverseProxy {
                 req.URL.Host = domain
                 log.Print(proto," ", domain," ",req.URL.Path)
         }
+        transport := &SurrogateTransport{
+            ReadTimeout:    10 * time.Second,
+            RequestTimeout: 15 * time.Second,
+        }
         return &httputil.ReverseProxy{
                 Director: director,
-                Transport: &SimpleTransport{
-                    ReadTimeout:    10 * time.Second,
-                    RequestTimeout: 15 * time.Second,
-                },
+                Transport: transport,
         }
 }
