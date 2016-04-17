@@ -14,7 +14,8 @@ import (
   "log"
   "fmt"
   "crypto/sha1"
-  //"bytes"
+  "bytes"
+  "io/ioutil"
   //"sort"
 )
 
@@ -42,6 +43,12 @@ func buildKey(req *http.Request) (string){
   return key
 }
 
+type nopCloser struct {
+    io.Reader
+}
+
+func (nopCloser) Close() error { return nil }
+
 // func sortedHeader(h http.Header) (string){
 //
 //   keys := []string
@@ -67,26 +74,37 @@ func (t *SurrogateTransport) RoundTrip(req *http.Request) (*http.Response, error
   hash := fmt.Sprintf("%x",sha1.Sum([]byte(key)))
   log.Print(hash)
 
-  log.Print(SurrogateCache)
+  //log.Print(SurrogateCache)
+
+  var res *http.Response
 
   if SurrogateCache[hash] != nil {
+    res = SurrogateCache[hash]
     log.Print("Cache HIT -> ",hash)
-    log.Print(SurrogateCache[hash])
-    return SurrogateCache[hash], nil
+
+  }else{
+    res, err := t.originRequest(req)
+    if err != nil {
+      return nil, err
+    }
+
+    defer res.Body.Close()
+    body, err := ioutil.ReadAll(res.Body)
+    if err != nil {
+      return nil, err
+    }
+
+    SurrogateCache[hash] = &http.Response{
+      Status: res.Status,
+      Header: res.Header,
+      Body: nopCloser{bytes.NewBufferString(string(body))},
+    }
   }
 
-  res, err := t.originRequest(req)
-  if err != nil {
-    return nil, err
-  }
+  log.Print(res)
 
-  SurrogateCache[hash] = &http.Response{
-    Status: res.Status,
-    Header: res.Header,
-    Body: res.Body,
-  }
-  log.Print(SurrogateCache[hash])
-  return SurrogateCache[hash], nil
+
+  return res, nil
 }
 
 func (t *SurrogateTransport) originRequest(req *http.Request) (*http.Response, error) {
