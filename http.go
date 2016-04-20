@@ -46,6 +46,7 @@ func NewPathBasedReverseProxy() *httputil.ReverseProxy {
         transport := &SurrogateTransport{
             ReadTimeout:    10 * time.Second,
             RequestTimeout: 15 * time.Second,
+            Cache: NewInMemoryCache(),
         }
         return &httputil.ReverseProxy{
                 Director: director,

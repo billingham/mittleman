@@ -13,35 +13,17 @@ import (
 	"time"
   "log"
   "fmt"
-  "crypto/sha1"
-  "bytes"
-  "io/ioutil"
   //"sort"
 )
 
 // https://github.com/pkulak/SimpleTransport
 
-// An HTTP RoundTripper that doesn't pool connections. Most of this is ripped from http.Transport.
-
-type Cache map[string]*http.Response
-
-
 type SurrogateTransport struct {
 	ReadTimeout time.Duration
-
-	// RequestTimeout isn't exact. In the worst case, the actual timeout can come at RequestTimeout * 2.
-	RequestTimeout time.Duration
+  RequestTimeout time.Duration
+  Cache Cache
 }
 
-var SurrogateCache = Cache{}
-
-func buildKey(req *http.Request) (string){
-
-  //headers := sortedHeader(req.Header)
-  key := fmt.Sprintf("Transport\nURL: %s\nMethod: %s\nScheme: %s\nHost: %s",req.URL,req.Method,req.URL.Scheme,req.URL.Host)
-
-  return key
-}
 
 type nopCloser struct {
     io.Reader
@@ -67,19 +49,21 @@ func (nopCloser) Close() error { return nil }
 //   return buffer.String()
 // }
 
-func (t *SurrogateTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-  key := buildKey(req)
-  log.Print(key)
+func BuildHTTPKey(req *http.Request) (string){
+  return HashKey(fmt.Sprintf("Transport\nURL: %s\nMethod: %s\nScheme: %s\nHost: %s",req.URL,req.Method,req.URL.Scheme,req.URL.Host))
+}
 
-  hash := fmt.Sprintf("%x",sha1.Sum([]byte(key)))
+func (t *SurrogateTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+  hash := BuildHTTPKey(req)
   log.Print(hash)
 
   //log.Print(SurrogateCache)
 
   var res *http.Response
 
-  if SurrogateCache[hash] != nil {
-    res = SurrogateCache[hash]
+  cache, present := t.Cache.Get(hash)
+  if present {
+    res = NewHttpResponseFromCache(cache)
     log.Print("Cache HIT -> ",hash)
 
   }else{
@@ -88,17 +72,11 @@ func (t *SurrogateTransport) RoundTrip(req *http.Request) (*http.Response, error
       return nil, err
     }
 
-    defer res.Body.Close()
-    body, err := ioutil.ReadAll(res.Body)
+    cc, err := NewCacheContentHttp(hash, res)
     if err != nil {
       return nil, err
     }
-
-    SurrogateCache[hash] = &http.Response{
-      Status: res.Status,
-      Header: res.Header,
-      Body: nopCloser{bytes.NewBufferString(string(body))},
-    }
+    t.Cache.Set(hash, cc)
   }
 
   log.Print(res)
